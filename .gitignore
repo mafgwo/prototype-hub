@@ -1,0 +1,28 @@
+.env
+
+# Runtime data
+data/
+tmp/
+*.db
+*.sqlite
+*.sqlite3
+
+# Build outputs
+bin/
+dist/
+build/
+coverage.out
+*.exe
+*.dll
+*.so
+*.dylib
+prototypehub
+
+# Logs
+*.log
+
+# IDE and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
