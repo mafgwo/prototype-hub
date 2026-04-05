@@ -107,6 +107,7 @@ func Run() error {
 	secured.GET("/projects/:id/versions", server.handleProjectVersions)
 	secured.GET("/projects/:id/versions/:versionID", server.handleProjectVersionDetail)
 	secured.POST("/projects/:id/versions/upload", server.requireRole(models.SystemRoleAdmin, models.SystemRoleProjectAdmin), server.handleVersionUpload)
+	secured.DELETE("/projects/:id/versions/:versionID", server.requireRole(models.SystemRoleAdmin, models.SystemRoleProjectAdmin), server.handleDeleteProjectVersion)
 	secured.POST("/projects/:id/versions/:versionID/label", server.requireRole(models.SystemRoleAdmin, models.SystemRoleProjectAdmin), server.handleUpdateVersionLabel)
 	secured.POST("/projects/:id/versions/:versionID/entry-file", server.requireRole(models.SystemRoleAdmin, models.SystemRoleProjectAdmin), server.handleUpdateVersionEntryFile)
 	secured.POST("/projects/:id/current-version", server.requireRole(models.SystemRoleAdmin, models.SystemRoleProjectAdmin), server.handleSwitchCurrentVersion)

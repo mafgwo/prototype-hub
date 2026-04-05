@@ -136,7 +136,7 @@ func (s *Server) handleDeleteProject(c *gin.Context) {
 
 	for _, version := range versions {
 		if version.ZipObjectKey != "" {
-			if err := s.store.DeletePrefix(ctx, version.ZipObjectKey); err != nil {
+			if err := s.store.Delete(ctx, version.ZipObjectKey); err != nil {
 				s.respondError(c, http.StatusInternalServerError, "failed to delete version zip from storage")
 				return
 			}
@@ -196,6 +196,98 @@ func (s *Server) handleProjectVersions(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": versionSummaries(versions)})
+}
+
+func (s *Server) handleDeleteProjectVersion(c *gin.Context) {
+	user := s.currentUser(c)
+	project, err := s.loadProject(c.Param("id"))
+	if err != nil {
+		s.respondError(c, http.StatusNotFound, "project not found")
+		return
+	}
+	if !s.canEditProject(user, project) {
+		s.respondError(c, http.StatusForbidden, "permission denied")
+		return
+	}
+
+	var version models.ProjectVersion
+	if err := s.db.Where("id = ? AND project_id = ?", c.Param("versionID"), project.ID).First(&version).Error; err != nil {
+		s.respondError(c, http.StatusNotFound, "version not found")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
+	defer cancel()
+
+	if version.ZipObjectKey != "" {
+		if err := s.store.Delete(ctx, version.ZipObjectKey); err != nil {
+			s.respondError(c, http.StatusInternalServerError, "failed to delete version zip from storage")
+			return
+		}
+	}
+	if version.ExtractPrefix != "" {
+		if err := s.store.DeletePrefix(ctx, version.ExtractPrefix); err != nil {
+			s.respondError(c, http.StatusInternalServerError, "failed to delete version files from storage")
+			return
+		}
+	}
+
+	tx := s.db.Begin()
+	if tx.Error != nil {
+		s.respondError(c, http.StatusInternalServerError, "failed to start transaction")
+		return
+	}
+
+	if err := tx.Delete(&models.ProjectVersion{}, version.ID).Error; err != nil {
+		tx.Rollback()
+		s.respondError(c, http.StatusInternalServerError, "failed to delete project version")
+		return
+	}
+
+	wasCurrent := project.CurrentVersionID != nil && *project.CurrentVersionID == version.ID
+	if wasCurrent {
+		var nextVersion models.ProjectVersion
+		var nextVersionID *uint
+		if err := tx.
+			Where("project_id = ? AND status = ?", project.ID, models.VersionStatusReady).
+			Order("version_no desc").
+			First(&nextVersion).Error; err == nil {
+			nextVersionID = &nextVersion.ID
+		}
+		if err := tx.Model(&models.Project{}).Where("id = ?", project.ID).Update("current_version_id", nextVersionID).Error; err != nil {
+			tx.Rollback()
+			s.respondError(c, http.StatusInternalServerError, "failed to update current project version")
+			return
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		s.respondError(c, http.StatusInternalServerError, "failed to commit version deletion")
+		return
+	}
+
+	s.createAuditLog(&user.ID, "version.delete", "project_version", fmt.Sprintf("%d", version.ID), fmt.Sprintf("project=%d version=%d", project.ID, version.VersionNo))
+
+	updatedProject, err := s.loadProject(c.Param("id"))
+	if err != nil {
+		s.respondError(c, http.StatusInternalServerError, "failed to reload project after deletion")
+		return
+	}
+	var versions []models.ProjectVersion
+	if err := s.db.Where("project_id = ?", updatedProject.ID).Order("version_no desc").Find(&versions).Error; err != nil {
+		s.respondError(c, http.StatusInternalServerError, "failed to reload project versions")
+		return
+	}
+	updatedProject.Versions = versionSummaries(versions)
+	if updatedProject.CurrentVersion != nil {
+		summary := versionSummary(*updatedProject.CurrentVersion)
+		updatedProject.CurrentVersion = &summary
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"project": updatedProject,
+	})
 }
 
 func (s *Server) handleMemberCandidates(c *gin.Context) {

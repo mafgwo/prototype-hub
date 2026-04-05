@@ -8,6 +8,7 @@ const state = {
   route: "dashboard",
   message: "",
   error: "",
+  busy: null,
   versionEditor: null,
   permissionEditor: null,
   auditPagination: {
@@ -85,6 +86,20 @@ function setMessage(message, isError = false) {
   state.message = isError ? "" : message;
   state.error = isError ? message : "";
   render();
+}
+
+function beginBusy(text) {
+  state.busy = text || "处理中...";
+  render();
+}
+
+function endBusy() {
+  state.busy = null;
+  render();
+}
+
+function busyDisabledAttr() {
+  return state.busy ? "disabled" : "";
 }
 
 function upsertProject(project) {
@@ -241,9 +256,9 @@ function projectRowsView(projects) {
         <td>${escapeHtml(formatDate(project.createdAt))}</td>
       <td class="actions-cell">
         <div class="project-actions">
-          <button class="open-project-btn" data-project-id="${project.id}">查看</button>
+          <button class="open-project-btn" data-project-id="${project.id}" ${busyDisabledAttr()}>查看</button>
           ${project.currentVersionId ? `<a href="/preview/${project.currentVersionId}" target="_blank"><button type="button" class="ghost">预览</button></a>` : ""}
-          ${isAdmin() ? `<button class="danger delete-project-btn" data-project-id="${project.id}" data-project-name="${escapeHtml(project.name)}">删除</button>` : ""}
+          ${isAdmin() ? `<button class="danger delete-project-btn" data-project-id="${project.id}" data-project-name="${escapeHtml(project.name)}" ${busyDisabledAttr()}>${state.busy ? "删除中..." : "删除"}</button>` : ""}
         </div>
       </td>
     </tr>
@@ -345,8 +360,9 @@ function projectPermissionsView(project) {
 function versionActionsView(project, version) {
   return `
     <div class="row" style="justify-content:flex-end;">
-      ${version.status === "ready" ? `<a href="/preview/${version.id}" target="_blank"><button class="ghost">预览</button></a>` : ""}
-      ${canManageProjects() && version.status === "ready" && project.currentVersionId !== version.id ? `<button class="switch-version-btn" data-version-id="${version.id}">设为当前版本</button>` : ""}
+      ${version.status === "ready" ? `<a href="/preview/${version.id}" target="_blank"><button class="ghost" ${busyDisabledAttr()}>预览</button></a>` : ""}
+      ${canManageProjects() && version.status === "ready" && project.currentVersionId !== version.id ? `<button class="switch-version-btn" data-version-id="${version.id}" ${busyDisabledAttr()}>设为当前版本</button>` : ""}
+      ${canManageProjects() ? `<button class="danger delete-version-btn" data-version-id="${version.id}" data-version-no="${version.versionNo}" ${busyDisabledAttr()}>${state.busy ? "删除中..." : "删除版本"}</button>` : ""}
     </div>
   `;
 }
@@ -646,6 +662,15 @@ function mainView() {
       </div>
       ${versionEditorModalView()}
       ${permissionEditorModalView()}
+      ${state.busy ? `
+        <div class="busy-backdrop">
+          <div class="busy-panel">
+            <div class="busy-spinner"></div>
+            <div>${escapeHtml(state.busy)}</div>
+            <div class="muted">删除尚未完成，请稍候，不要重复操作。</div>
+          </div>
+        </div>
+      ` : ""}
     </div>
   `;
 }
@@ -711,6 +736,7 @@ function bindProjectFilters() {
 function bindShell() {
   document.querySelectorAll("[data-route]").forEach(button => {
     button.addEventListener("click", async () => {
+      if (state.busy) return;
       state.route = button.dataset.route;
       if (state.route === "users" && canManageUsers()) await loadUsers();
       if (state.route === "audit" && canViewAudit()) await loadAudit();
@@ -723,6 +749,7 @@ function bindShell() {
   const logoutBtn = document.getElementById("logout-btn");
   if (logoutBtn) {
     logoutBtn.addEventListener("click", async () => {
+      if (state.busy) return;
       await api("/api/auth/logout", { method: "POST" });
       Object.assign(state, { me: null, projects: [], currentProject: null, route: "dashboard" });
       render();
@@ -733,6 +760,7 @@ function bindShell() {
   if (changePasswordForm) {
     changePasswordForm.addEventListener("submit", async event => {
       event.preventDefault();
+      if (state.busy) return;
       const form = new FormData(event.target);
       try {
         await api("/api/me/password", {
@@ -754,6 +782,7 @@ function bindShell() {
   if (createProjectForm) {
     createProjectForm.addEventListener("submit", async event => {
       event.preventDefault();
+      if (state.busy) return;
       const form = new FormData(event.target);
       try {
         await api("/api/projects", {
@@ -774,11 +803,15 @@ function bindShell() {
 
   const reloadProjectsBtn = document.getElementById("reload-projects-btn");
   if (reloadProjectsBtn) {
-    reloadProjectsBtn.addEventListener("click", loadProjects);
+    reloadProjectsBtn.addEventListener("click", () => {
+      if (state.busy) return;
+      loadProjects();
+    });
   }
 
   document.querySelectorAll(".open-project-btn").forEach(button => {
     button.addEventListener("click", async () => {
+      if (state.busy) return;
       try {
         await openProject(button.dataset.projectId);
       } catch (error) {
@@ -789,11 +822,13 @@ function bindShell() {
 
   document.querySelectorAll(".delete-project-btn").forEach(button => {
     button.addEventListener("click", async () => {
+      if (state.busy) return;
       const projectName = button.dataset.projectName || "该项目";
       if (!window.confirm(`确认删除项目“${projectName}”吗？项目版本记录也会一并删除。`)) {
         return;
       }
       try {
+        beginBusy(`正在删除项目“${projectName}”...`);
         await api(`/api/projects/${button.dataset.projectId}`, { method: "DELETE" });
         if (state.currentProject?.id === Number(button.dataset.projectId)) {
           state.currentProject = null;
@@ -803,6 +838,8 @@ function bindShell() {
         await loadProjects();
       } catch (error) {
         setMessage(error.message, true);
+      } finally {
+        endBusy();
       }
     });
   });
@@ -810,6 +847,7 @@ function bindShell() {
   const backBtn = document.getElementById("back-dashboard-btn");
   if (backBtn) {
     backBtn.addEventListener("click", async () => {
+      if (state.busy) return;
       state.route = "dashboard";
       state.currentProject = null;
       await loadProjects();
@@ -821,6 +859,7 @@ function bindShell() {
   if (uploadForm) {
     uploadForm.addEventListener("submit", async event => {
       event.preventDefault();
+      if (state.busy) return;
       const formData = new FormData(event.target);
       try {
         setMessage("ZIP 已提交，后台正在处理...");
@@ -843,6 +882,7 @@ function bindShell() {
 
   document.querySelectorAll(".switch-version-btn").forEach(button => {
     button.addEventListener("click", async () => {
+      if (state.busy) return;
       try {
         const data = await api(`/api/projects/${state.currentProject.id}/current-version`, {
           method: "POST",
@@ -856,6 +896,35 @@ function bindShell() {
         render();
       } catch (error) {
         setMessage(error.message, true);
+      }
+    });
+  });
+
+  document.querySelectorAll(".delete-version-btn").forEach(button => {
+    button.addEventListener("click", async () => {
+      if (state.busy) return;
+      const versionNo = button.dataset.versionNo || "";
+      if (!window.confirm(`确认删除 v${versionNo} 吗？原始 ZIP 和预览文件也会一起删除。`)) {
+        return;
+      }
+      try {
+        beginBusy(`正在删除版本 v${versionNo}...`);
+        const data = await api(`/api/projects/${state.currentProject.id}/versions/${button.dataset.versionId}`, {
+          method: "DELETE",
+        });
+        if (data.project) {
+          state.currentProject = data.project;
+          upsertProject(data.project);
+        } else {
+          await openProject(state.currentProject.id);
+        }
+        state.versionEditor = null;
+        setMessage("版本已删除");
+        render();
+      } catch (error) {
+        setMessage(error.message, true);
+      } finally {
+        endBusy();
       }
     });
   });

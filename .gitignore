@@ -1,4 +1,5 @@
 .env
+.env.mysql.cos
 
 # Runtime data
 data/
@@ -17,6 +18,8 @@ coverage.out
 *.so
 *.dylib
 prototypehub
+.env.mysql*
+docker-compose.mysql-cos.yml
 
 # Logs
 *.log

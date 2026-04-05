@@ -47,6 +47,18 @@ func (s *LocalStorage) Get(_ context.Context, key string) (*Object, error) {
 	return &Object{Body: file, ContentType: contentType}, nil
 }
 
+func (s *LocalStorage) Delete(_ context.Context, key string) error {
+	key = strings.Trim(key, "/")
+	if key == "" || key == "." {
+		return nil
+	}
+	fullPath := filepath.Join(s.root, filepath.FromSlash(key))
+	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func (s *LocalStorage) DeletePrefix(_ context.Context, prefix string) error {
 	prefix = strings.Trim(prefix, "/")
 	if prefix == "" || prefix == "." {

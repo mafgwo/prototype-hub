@@ -32,6 +32,12 @@ Copy-Item .env.example .env
 docker compose --profile mysql up app-mysql mysql minio --build
 ```
 
+如果使用腾讯云 COS 这类预先建桶的对象存储，建议设置：
+
+```env
+S3_AUTO_CREATE_BUCKET=false
+```
+
 3. 打开：
 
 - 应用：[http://localhost:8080](http://localhost:8080)
