@@ -26,6 +26,7 @@ type Config struct {
 	S3SecretKey            string
 	S3UsePathStyle         bool
 	S3AutoCreateBucket     bool
+	PreviewDisableCSP      bool
 	UploadMaxSizeBytes     int64
 	UploadMaxFileCount     int
 	UploadMaxExtractedSize int64
@@ -54,6 +55,7 @@ func Load() Config {
 		S3SecretKey:            getEnv("S3_SECRET_KEY", "minioadmin"),
 		S3UsePathStyle:         getBool("S3_USE_PATH_STYLE", true),
 		S3AutoCreateBucket:     getBool("S3_AUTO_CREATE_BUCKET", true),
+		PreviewDisableCSP:      getBool("PREVIEW_DISABLE_CSP", false),
 		UploadMaxSizeBytes:     getInt64("UPLOAD_MAX_SIZE_BYTES", 100<<20),
 		UploadMaxFileCount:     getInt("UPLOAD_MAX_FILE_COUNT", 10000),
 		UploadMaxExtractedSize: getInt64("UPLOAD_MAX_EXTRACTED_SIZE_BYTES", 300<<20),

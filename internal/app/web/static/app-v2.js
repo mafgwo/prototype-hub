@@ -9,6 +9,7 @@ const state = {
   message: "",
   error: "",
   busy: null,
+  projectEditor: null,
   versionEditor: null,
   permissionEditor: null,
   auditPagination: {
@@ -137,6 +138,21 @@ async function openVersionEditor(type, versionId) {
 
 function closeVersionEditor() {
   state.versionEditor = null;
+  render();
+}
+
+function openProjectEditor() {
+  if (!state.currentProject) return;
+  state.projectEditor = {
+    name: state.currentProject.name || "",
+    description: state.currentProject.description || "",
+    status: state.currentProject.status || "active",
+  };
+  render();
+}
+
+function closeProjectEditor() {
+  state.projectEditor = null;
   render();
 }
 
@@ -459,6 +475,42 @@ function permissionEditorModalView() {
   `;
 }
 
+function projectEditorModalView() {
+  if (!state.projectEditor || !state.currentProject) return "";
+  return `
+    <div class="modal-backdrop">
+      <section class="modal-card">
+        <div class="section-title">
+          <div>
+            <h3 style="margin:0;">编辑项目信息</h3>
+            <div class="muted">${escapeHtml(state.currentProject.slug || "")}</div>
+          </div>
+          <button type="button" class="ghost close-project-editor-btn">关闭</button>
+        </div>
+        <div>
+          <label>项目名称</label>
+          <input id="project-editor-name" maxlength="160" value="${escapeHtml(state.projectEditor.name)}" />
+        </div>
+        <div style="margin-top:12px;">
+          <label>项目描述</label>
+          <textarea id="project-editor-description">${escapeHtml(state.projectEditor.description)}</textarea>
+        </div>
+        <div style="margin-top:12px;">
+          <label>项目状态</label>
+          <select id="project-editor-status">
+            <option value="active" ${state.projectEditor.status === "active" ? "selected" : ""}>active</option>
+            <option value="archived" ${state.projectEditor.status === "archived" ? "selected" : ""}>archived</option>
+          </select>
+        </div>
+        <div class="row" style="margin-top:16px; justify-content:flex-end;">
+          <button type="button" class="secondary close-project-editor-btn">取消</button>
+          <button type="button" id="save-project-editor-btn">保存项目信息</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function projectView() {
   const project = state.currentProject;
   if (!project) return `<section class="card">项目不存在或还未加载。</section>`;
@@ -479,11 +531,17 @@ function projectView() {
 
       <div class="row">
         <div class="card" style="padding:16px;">
-          <h3 style="margin-top:0;">项目信息</h3>
+          <div class="section-title" style="margin-bottom:10px;">
+            <h3 style="margin:0;">项目信息</h3>
+            ${canManageProjects() ? `<button type="button" class="secondary" id="open-project-editor-btn" ${busyDisabledAttr()}>编辑</button>` : ""}
+          </div>
           <div>Slug: <strong>${escapeHtml(project.slug)}</strong></div>
+          <div class="muted">名称: ${escapeHtml(project.name)}</div>
           <div class="muted">Owner: ${escapeHtml(project.owner?.displayName || "-")}</div>
+          <div class="muted">状态: ${escapeHtml(project.status || "-")}</div>
           <div class="muted">当前版本: ${project.currentVersion ? `v${project.currentVersion.versionNo}` : "未设置"}</div>
           <div class="muted">已授权用户: ${(project.members || []).length}</div>
+          <div class="muted">描述: ${escapeHtml(project.description || "暂无描述")}</div>
         </div>
 
         <div class="card" style="padding:16px;">
@@ -662,6 +720,7 @@ function mainView() {
       </div>
       ${versionEditorModalView()}
       ${permissionEditorModalView()}
+      ${projectEditorModalView()}
       ${state.busy ? `
         <div class="busy-backdrop">
           <div class="busy-panel">
@@ -953,6 +1012,18 @@ function bindShell() {
     button.addEventListener("click", closeVersionEditor);
   });
 
+  const openProjectEditorBtn = document.getElementById("open-project-editor-btn");
+  if (openProjectEditorBtn) {
+    openProjectEditorBtn.addEventListener("click", () => {
+      if (state.busy) return;
+      openProjectEditor();
+    });
+  }
+
+  document.querySelectorAll(".close-project-editor-btn").forEach(button => {
+    button.addEventListener("click", closeProjectEditor);
+  });
+
   const openPermissionEditorBtn = document.getElementById("open-permission-editor-btn");
   if (openPermissionEditorBtn) {
     openPermissionEditorBtn.addEventListener("click", openPermissionEditor);
@@ -1032,6 +1103,37 @@ function bindShell() {
         state.permissionEditor = null;
         setMessage("项目权限已更新");
         await openProject(state.currentProject.id);
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    });
+  }
+
+  const saveProjectEditorBtn = document.getElementById("save-project-editor-btn");
+  if (saveProjectEditorBtn) {
+    saveProjectEditorBtn.addEventListener("click", async () => {
+      if (state.busy || !state.currentProject) return;
+      const nameInput = document.getElementById("project-editor-name");
+      const descriptionInput = document.getElementById("project-editor-description");
+      const statusInput = document.getElementById("project-editor-status");
+      try {
+        const data = await api(`/api/projects/${state.currentProject.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: nameInput.value.trim(),
+            description: descriptionInput.value.trim(),
+            status: statusInput.value,
+          }),
+        });
+        state.projectEditor = null;
+        if (data.project) {
+          state.currentProject = data.project;
+          upsertProject(data.project);
+        } else {
+          await openProject(state.currentProject.id);
+        }
+        setMessage("项目信息已更新");
+        render();
       } catch (error) {
         setMessage(error.message, true);
       }
@@ -1178,6 +1280,7 @@ async function openProject(projectId) {
   if (canManageProjects() && state.memberCandidates.length === 0) await loadMemberCandidates();
   const data = await api(`/api/projects/${projectId}`);
   state.versionEditor = null;
+  state.projectEditor = null;
   state.permissionEditor = null;
   state.currentProject = data.project;
   upsertProject(data.project);

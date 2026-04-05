@@ -103,6 +103,7 @@ func Run() error {
 	secured.GET("/projects", server.handleProjectList)
 	secured.POST("/projects", server.requireRole(models.SystemRoleAdmin, models.SystemRoleProjectAdmin), server.handleCreateProject)
 	secured.GET("/projects/:id", server.handleProjectDetail)
+	secured.PATCH("/projects/:id", server.requireRole(models.SystemRoleAdmin, models.SystemRoleProjectAdmin), server.handleUpdateProject)
 	secured.DELETE("/projects/:id", server.requireRole(models.SystemRoleAdmin), server.handleDeleteProject)
 	secured.GET("/projects/:id/versions", server.handleProjectVersions)
 	secured.GET("/projects/:id/versions/:versionID", server.handleProjectVersionDetail)

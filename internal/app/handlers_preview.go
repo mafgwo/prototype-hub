@@ -71,7 +71,9 @@ func (s *Server) handlePreview(c *gin.Context) {
 	defer object.Body.Close()
 
 	c.Header("X-Content-Type-Options", "nosniff")
-	c.Header("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-ancestors 'none';")
+	if !s.cfg.PreviewDisableCSP {
+		c.Header("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-ancestors 'none';")
+	}
 	c.Header("Cache-Control", "no-store")
 	c.Header("Content-Type", object.ContentType)
 	c.Status(http.StatusOK)

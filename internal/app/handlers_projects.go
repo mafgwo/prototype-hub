@@ -20,6 +20,12 @@ type createProjectRequest struct {
 	Description string `json:"description"`
 }
 
+type updateProjectRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+}
+
 type switchVersionRequest struct {
 	VersionID uint `json:"versionId"`
 }
@@ -111,6 +117,64 @@ func (s *Server) handleProjectDetail(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"project": project})
+}
+
+func (s *Server) handleUpdateProject(c *gin.Context) {
+	user := s.currentUser(c)
+	project, err := s.loadProject(c.Param("id"))
+	if err != nil {
+		s.respondError(c, http.StatusNotFound, "project not found")
+		return
+	}
+	if !s.canEditProject(user, project) {
+		s.respondError(c, http.StatusForbidden, "permission denied")
+		return
+	}
+
+	var req updateProjectRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
+		s.respondError(c, http.StatusBadRequest, "project name is required")
+		return
+	}
+	if req.Status == "" {
+		req.Status = project.Status
+	}
+	if req.Status != models.ProjectStatusActive && req.Status != models.ProjectStatusArchived {
+		s.respondError(c, http.StatusBadRequest, "invalid project status")
+		return
+	}
+
+	updates := map[string]any{
+		"name":        req.Name,
+		"description": req.Description,
+		"status":      req.Status,
+	}
+	if err := s.db.Model(&models.Project{}).Where("id = ?", project.ID).Updates(updates).Error; err != nil {
+		s.respondError(c, http.StatusInternalServerError, "failed to update project")
+		return
+	}
+
+	updatedProject, err := s.loadProject(c.Param("id"))
+	if err != nil {
+		s.respondError(c, http.StatusInternalServerError, "failed to reload project")
+		return
+	}
+	var versions []models.ProjectVersion
+	if err := s.db.Where("project_id = ?", updatedProject.ID).Order("version_no desc").Find(&versions).Error; err != nil {
+		s.respondError(c, http.StatusInternalServerError, "failed to reload project versions")
+		return
+	}
+	updatedProject.Versions = versionSummaries(versions)
+	if updatedProject.CurrentVersion != nil {
+		summary := versionSummary(*updatedProject.CurrentVersion)
+		updatedProject.CurrentVersion = &summary
+	}
+
+	s.createAuditLog(&user.ID, "project.update", "project", fmt.Sprintf("%d", project.ID), fmt.Sprintf("name=%s status=%s", req.Name, req.Status))
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"project": updatedProject,
+	})
 }
 
 func (s *Server) handleDeleteProject(c *gin.Context) {
